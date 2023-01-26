@@ -13,5 +13,8 @@ macro_rules! flat_mod {
 
 pub(crate) extern crate alloc;
 
+#[docfg::docfg(feature = "serde")]
+flat_mod! { serde_impl }
+
 pub mod vec;
 pub mod r#box;

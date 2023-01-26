@@ -274,11 +274,61 @@ impl<K, V> VecMap<K, V> {
     }
 }
 
-#[cfg(feature = "alloc")]
-impl<K, V, A: Allocator + Default> Default for VecMap<K, V, A> {
+#[cfg(not(feature = "alloc"))]
+impl<K, V> IntoIterator for VecMap<K, V> {
+    type Item = (K, V);
+    type IntoIter = IntoIter<K, V>;
+
     #[inline]
-    fn default() -> Self {
-        Self { inner: Vec::new_in(A::default()) }
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
+impl<'a, K, V> IntoIterator for &'a VecMap<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = Iter<'a, K, V>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        VecMap::iter(self)
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
+impl<'a, K, V> IntoIterator for &'a mut VecMap<K, V> {
+    type Item = (&'a K, &'a mut V);
+    type IntoIter = IterMut<'a, K, V>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        VecMap::iter_mut(self)
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
+impl<K: Eq, V> Extend<(K, V)> for VecMap<K, V> {
+    #[inline]
+    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
+        for (key, value) in iter {
+            let _ = self.insert(key, value);
+        }
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
+impl<K: Eq, V> FromIterator<(K, V)> for VecMap<K, V> {
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
+        let iter = iter.into_iter();
+        let mut result = Self::with_capacity(match iter.size_hint() {
+            (_, Some(x)) => x,
+            (x, _) => x
+        });
+
+        result.extend(iter);
+        return result
     }
 }
 
@@ -290,27 +340,11 @@ impl<K, V> Default for VecMap<K, V> {
     }
 }
 
-#[cfg(feature = "alloc")]
-impl<K, V, A: Allocator> From<BoxMap<K, V, A>> for VecMap<K, V, A> {
-    #[inline]
-    fn from(value: BoxMap<K, V, A>) -> Self {
-        Self { inner: value.into_vec() }
-    }
-}
-
 #[cfg(not(feature = "alloc"))]
 impl<K, V> From<BoxMap<K, V>> for VecMap<K, V> {
     #[inline]
     fn from(value: BoxMap<K, V>) -> Self {
         Self { inner: value.into_vec() }
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K: Debug, V: Debug, A: Allocator> Debug for VecMap<K, V, A> {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
     }
 }
 
@@ -321,6 +355,91 @@ impl<K: Debug, V: Debug> Debug for VecMap<K, V> {
         f.debug_map().entries(self.iter()).finish()
     }
 }
+
+#[cfg(feature = "alloc")]
+impl<K, V, A: Allocator> IntoIterator for VecMap<K, V, A> {
+    type Item = (K, V);
+    type IntoIter = IntoIter<K, V, A>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a, K, V, A: Allocator> IntoIterator for &'a VecMap<K, V, A> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = Iter<'a, K, V>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        VecMap::iter(self)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a, K, V, A: Allocator> IntoIterator for &'a mut VecMap<K, V, A> {
+    type Item = (&'a K, &'a mut V);
+    type IntoIter = IterMut<'a, K, V>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        VecMap::iter_mut(self)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<K: Eq, V, A: Allocator> Extend<(K, V)> for VecMap<K, V, A> {
+    #[inline]
+    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
+        for (key, value) in iter {
+            let _ = self.insert(key, value);
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<K: Eq, V, A: Allocator + Default> FromIterator<(K, V)> for VecMap<K, V, A> {
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
+        let iter = iter.into_iter();
+        let mut result = Self::with_capacity_in(match iter.size_hint() {
+            (_, Some(x)) => x,
+            (x, _) => x
+        }, A::default());
+
+        result.extend(iter);
+        return result
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<K, V, A: Allocator + Default> Default for VecMap<K, V, A> {
+    #[inline]
+    fn default() -> Self {
+        Self { inner: Vec::new_in(A::default()) }
+    }
+}
+
+
+#[cfg(feature = "alloc")]
+impl<K, V, A: Allocator> From<BoxMap<K, V, A>> for VecMap<K, V, A> {
+    #[inline]
+    fn from(value: BoxMap<K, V, A>) -> Self {
+        Self { inner: value.into_vec() }
+    }
+}
+
+
+#[cfg(feature = "alloc")]
+impl<K: Debug, V: Debug, A: Allocator> Debug for VecMap<K, V, A> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
