@@ -1,5 +1,5 @@
 [package]
-name = "vecmap"
+name = "vector_mapp"
 description = "A Vec based map"
 version = "0.1.0"
 edition = "2021"
