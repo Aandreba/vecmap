@@ -205,6 +205,14 @@ impl<K: Eq, V> FromIterator<(K, V)> for BoxMap<K, V> {
 }
 
 #[cfg(not(feature = "alloc"))]
+impl<K, V> Default for BoxMap<K, V> {
+    #[inline]
+    fn default () -> Self {
+        return Self { inner: Box::new([]) }
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
 impl<K: Debug, V: Debug> Debug for BoxMap<K, V> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -258,6 +266,14 @@ impl<K: Eq, V, A: Allocator + Default> FromIterator<(K, V)> for BoxMap<K, V, A> 
     #[inline]
     fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
         VecMap::from_iter(iter).into()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<K, V, A: Allocator + Default> Default for BoxMap<K, V, A> {
+    #[inline]
+    fn default () -> Self {
+        return Self { inner: Box::new_in([], A::default()) }
     }
 }
 
