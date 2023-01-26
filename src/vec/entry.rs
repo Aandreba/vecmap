@@ -1,5 +1,7 @@
 #[cfg(feature = "alloc")]
 use core::alloc::*;
+#[cfg(feature = "alloc")]
+use alloc::alloc::*;
 use core::{
     mem::{MaybeUninit},
 };
