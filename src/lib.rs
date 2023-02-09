@@ -18,3 +18,4 @@ flat_mod! { serde_impl }
 
 pub mod vec;
 pub mod r#box;
+pub mod binary;

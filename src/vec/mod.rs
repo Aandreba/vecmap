@@ -443,7 +443,7 @@ impl<K: Debug, V: Debug, A: Allocator> Debug for VecMap<K, V, A> {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct Keys<'a, K: 'a, V: 'a> (core::slice::Iter<'a, (K, V)>);
+pub struct Keys<'a, K: 'a, V: 'a> (pub(super) core::slice::Iter<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for Keys<'a, K, V> {
     type Item = &'a K;
@@ -500,7 +500,7 @@ impl<'a, K, V> ExactSizeIterator for Keys<'a, K, V> {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct Values<'a, K: 'a, V: 'a> (core::slice::Iter<'a, (K, V)>);
+pub struct Values<'a, K: 'a, V: 'a> (pub(super) core::slice::Iter<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for Values<'a, K, V> {
     type Item = &'a V;
@@ -557,7 +557,7 @@ impl<'a, K, V> ExactSizeIterator for Values<'a, K, V> {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct ValuesMut<'a, K: 'a, V: 'a> (core::slice::IterMut<'a, (K, V)>);
+pub struct ValuesMut<'a, K: 'a, V: 'a> (pub(super) core::slice::IterMut<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for ValuesMut<'a, K, V> {
     type Item = &'a mut V;
@@ -616,9 +616,9 @@ impl<'a, K, V> ExactSizeIterator for ValuesMut<'a, K, V> {
 #[repr(transparent)]
 pub struct IntoKeys<K, V, #[cfg(feature = "alloc")] A: Allocator = Global> (
     #[cfg(feature = "alloc")]
-    alloc::vec::IntoIter<(K, V), A>,
+    pub(super) alloc::vec::IntoIter<(K, V), A>,
     #[cfg(not(feature = "alloc"))]
-    alloc::vec::IntoIter<(K, V)>,
+    pub(super) alloc::vec::IntoIter<(K, V)>,
 );
 
 impl<K, V> Iterator for IntoKeys<K, V> {
@@ -678,9 +678,9 @@ impl<K, V> ExactSizeIterator for IntoKeys<K, V> {
 #[repr(transparent)]
 pub struct IntoValues<K, V, #[cfg(feature = "alloc")] A: Allocator = Global> (
     #[cfg(feature = "alloc")]
-    alloc::vec::IntoIter<(K, V), A>,
+    pub(super) alloc::vec::IntoIter<(K, V), A>,
     #[cfg(not(feature = "alloc"))]
-    alloc::vec::IntoIter<(K, V)>,
+    pub(super) alloc::vec::IntoIter<(K, V)>,
 );
 
 impl<K, V> Iterator for IntoValues<K, V> {
@@ -738,7 +738,7 @@ impl<K, V> ExactSizeIterator for IntoValues<K, V> {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct Iter<'a, K: 'a, V: 'a> (core::slice::Iter<'a, (K, V)>);
+pub struct Iter<'a, K: 'a, V: 'a> (pub(super) core::slice::Iter<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for Iter<'a, K, V> {
     type Item = (&'a K, &'a V);
@@ -795,7 +795,7 @@ impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct IterMut<'a, K: 'a, V: 'a> (core::slice::IterMut<'a, (K, V)>);
+pub struct IterMut<'a, K: 'a, V: 'a> (pub(super) core::slice::IterMut<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
