@@ -1,13 +1,17 @@
-#![feature(iter_collect_into, file_create_new)]
+#![allow(unused)]
+#![feature(iter_collect_into, iter_intersperse, file_create_new)]
 
 use num_format::{Locale, ToFormattedString};
 use rand::{
     distributions::{Alphanumeric, Standard},
-    thread_rng, Rng,
+    thread_rng, Rng, random,
 };
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{HashMap, BTreeMap},
+    fs::File,
     hint::black_box,
+    io::{BufWriter, Seek, SeekFrom, Write},
+    ops::Deref,
     time::{Duration, Instant},
 };
 use vector_mapp::{binary::BinaryMap, vec::VecMap};
@@ -37,7 +41,7 @@ impl Bencher {
         runs = ((runs as f64) * self.duration.as_secs_f64() / self.warmup.as_secs_f64()) as u128;
         println!(
             "Benchmarking '{name}' [{param}] for {:?}  (expect arround {} runs)",
-            &self.warmup,
+            &self.duration,
             runs.to_formatted_string(&Locale::es)
         );
         let now = Instant::now();
@@ -50,7 +54,22 @@ impl Bencher {
         let average = Duration::from_secs_f64(delta.as_secs_f64() / (runs as f64));
         println!("Benchmarked '{name}' [{param}]: {average:?}");
         println!();
-        self.result[name]
+        self.result[name].push(average);
+    }
+
+    #[inline]
+    pub fn write(&self, w: &mut BufWriter<File>) -> std::io::Result<()> {
+        for (key, value) in self.result.iter() {
+            let value = value
+                .iter()
+                .map(|x| format!("{}", x.as_nanos()))
+                .intersperse(String::from(","))
+                .collect::<String>();
+
+            w.write_fmt(format_args!("{key},{value}\n"))?;
+        }
+
+        return Ok(());
     }
 }
 
@@ -60,30 +79,80 @@ fn insert_with_size(size: usize, b: &mut Bencher) {
         .take(size)
         .collect::<Vec<(u32, u32)>>();
 
-    let hash = b.iter("hashmap", size, || {
-        let mut hashmap = HashMap::new();
-        entries.iter().copied().collect_into(&mut hashmap);
+    b.iter("hashmap", size, || {
+        let mut hashmap = HashMap::with_capacity(size);
+        for (k, v) in entries.iter().copied() {
+            let _ = hashmap.insert(k, v);
+        }
+        return hashmap;
     });
 
-    let btree = b.iter("btreemap", size, || {
-        let mut hashmap = BTreeMap::new();
-        entries.iter().copied().collect_into(&mut hashmap);
+    // b.iter("btreemap", size, || {
+    //     let mut hashmap = BTreeMap::new();
+    //     for (k, v) in entries.iter().copied() {
+    //         let _ = hashmap.insert(k, v);
+    //     }
+    //     return hashmap;
+    // });
+
+    b.iter("vecmap", size, || {
+        let mut hashmap = VecMap::with_capacity(size);
+        for (k, v) in entries.iter().copied() {
+            let _ = hashmap.insert(k, v);
+        }
+        return hashmap;
     });
 
-    let vec = b.iter("vecmap", size, || {
-        let mut hashmap = VecMap::new();
-        entries.iter().copied().collect_into(&mut hashmap);
+    b.iter("binarymap", size, || {
+        let mut hashmap = BinaryMap::with_capacity(size);
+        for (k, v) in entries.iter().copied() {
+            let _ = hashmap.insert(k, v);
+        }
+        return hashmap;
     });
-
-    let bin = b.iter("binarymap", size, || {
-        let mut hashmap = BinaryMap::new();
-        entries.iter().copied().collect_into(&mut hashmap);
-    });
-
-    b.output.write_fmt(format_args!("{}\n")).unwrap();
 }
 
-pub fn main() {
+fn search_with_size(size: usize, b: &mut Bencher) {
+    let entries = thread_rng()
+        .sample_iter(Standard)
+        .take(size)
+        .collect::<Vec<(u32, u32)>>();
+
+    let searches = (0..size).map(|_| match random::<bool>() {
+        true => random::<u32>(),
+        false => unsafe { entries.get_unchecked(thread_rng().gen_range(0..size)).0 }
+    }).collect::<Vec<_>>();
+
+    let hashmap = entries.iter().copied().collect::<HashMap<_, _>>();
+    b.iter("hashmap", size, || {
+        for key in searches.iter() {
+            black_box(hashmap.get(key));
+        }
+    });
+
+    let btreemap = entries.iter().copied().collect::<BTreeMap<_, _>>();
+    b.iter("btreemap", size, || {
+        for key in searches.iter() {
+            black_box(btreemap.get(key));
+        }
+    });
+
+    let vecmap = entries.iter().copied().collect::<VecMap<_, _>>();
+    b.iter("vecmap", size, || {
+        for key in searches.iter() {
+            black_box(vecmap.get(key));
+        }
+    });
+
+    let binarymap = entries.iter().copied().collect::<BinaryMap<_, _>>();
+    b.iter("binarymap", size, || {
+        for key in searches.iter() {
+            black_box(binarymap.get(key));
+        }
+    });
+}
+
+pub fn main() -> std::io::Result<()> {
     let file_name = thread_rng()
         .sample_iter::<u8, _>(Alphanumeric)
         .take(10)
@@ -95,7 +164,7 @@ pub fn main() {
         duration: Duration::from_secs(5),
         result: [
             ("hashmap", Vec::new()),
-            ("btreemap", Vec::new()),
+            //("btreemap", Vec::new()),
             ("vecmap", Vec::new()),
             ("binarymap", Vec::new()),
         ]
@@ -103,8 +172,30 @@ pub fn main() {
         .collect(),
     };
 
+    let mut header = vec![String::new()];
+    let mut file = BufWriter::new(File::create_new(
+        String::from_utf8_lossy(&file_name).deref(),
+    )?);
+
     for i in (2..=200).step_by(10) {
-        insert_with_size(i, &mut b);
-        //insert_prealloc_with_size(i, c);
+        // Add entry count to headers
+        header.push(format!("{i}"));
+
+        // Run benchmark
+        search_with_size(i, &mut b);
+
+        // Go to the start of the file
+        file.seek(SeekFrom::Start(0))?;
+
+        // Write header
+        let mut header = header.join(",").into_bytes();
+        header.push(b'\n');
+        file.write_all(&header)?;
+
+        // Write contents
+        b.write(&mut file)?;
     }
+
+    file.flush()?;
+    return Ok(());
 }

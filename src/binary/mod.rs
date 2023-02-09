@@ -232,7 +232,7 @@ impl<'a, K, V> IntoIterator for &'a mut BinaryMap<K, V> {
 impl<K: Ord, V> Extend<(K, V)> for BinaryMap<K, V> {
     #[inline]
     fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
-        for (k, v) in iter.into_iter() { let _ = self.insert(k, v); }
+        for (k, v) in iter { let _ = self.insert(k, v); }
     }
 }
 
@@ -240,6 +240,15 @@ impl<'a, 'b, K: Ord + Clone, V: Clone> Extend<(&'a K, &'b V)> for BinaryMap<K, V
     #[inline]
     fn extend<T: IntoIterator<Item = (&'a K, &'b V)>>(&mut self, iter: T) {
         <Self as Extend<(K, V)>>::extend(self, iter.into_iter().map(|(x, y)| (x.clone(), y.clone())))
+    }
+}
+
+impl<K: Ord, V> FromIterator<(K, V)> for BinaryMap<K, V> {
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        let mut this = Self::default();
+        this.extend(iter);
+        this
     }
 }
 
