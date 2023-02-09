@@ -1,5 +1,5 @@
 use alloc::{vec::Vec, boxed::Box};
-use core::{borrow::Borrow};
+use core::{borrow::Borrow, ops::{Index, IndexMut}};
 
 flat_mod! { entry }
 
@@ -240,6 +240,22 @@ impl<'a, 'b, K: Ord + Clone, V: Clone> Extend<(&'a K, &'b V)> for BinaryMap<K, V
     #[inline]
     fn extend<T: IntoIterator<Item = (&'a K, &'b V)>>(&mut self, iter: T) {
         <Self as Extend<(K, V)>>::extend(self, iter.into_iter().map(|(x, y)| (x.clone(), y.clone())))
+    }
+}
+
+impl<Q: ?Sized + Ord, K: Borrow<Q>, V> Index<&Q> for BinaryMap<K, V> {
+    type Output = V;
+
+    #[inline]
+    fn index(&self, index: &Q) -> &Self::Output {
+        self.get(index).expect("index not found")
+    }
+}
+
+impl<Q: ?Sized + Ord, K: Borrow<Q>, V> IndexMut<&Q> for BinaryMap<K, V> {
+    #[inline]
+    fn index_mut(&mut self, index: &Q) -> &mut Self::Output {
+        self.get_mut(index).expect("index not found")
     }
 }
 

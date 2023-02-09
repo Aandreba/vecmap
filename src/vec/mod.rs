@@ -19,7 +19,7 @@ use docfg::docfg;
 use core::alloc::*;
 #[cfg(feature = "alloc")]
 use alloc::alloc::*;
-use core::{borrow::Borrow, fmt::Debug};
+use core::{borrow::Borrow, fmt::Debug, ops::{Index, IndexMut}};
 use alloc::{vec::*, boxed::Box};
 use crate::r#box::BoxMap;
 
@@ -96,7 +96,7 @@ impl_all! {{
 }}
 
 impl_all! {
-    where Eq => {
+    {
         #[inline]
         pub fn get<Q: ?Sized + Eq> (&self, key: &Q) -> Option<&V> where K: Borrow<Q> {
             for (k, v) in self.inner.iter() {
@@ -120,6 +120,26 @@ impl_all! {
             }
             return None
         }
+        
+        #[inline]
+        pub fn remove<Q: ?Sized + Eq> (&mut self, key: &Q) -> Option<V> where K: Borrow<Q> {
+            return self.remove_entry(key).map(|x| x.1)
+        }
+        
+        #[inline]
+        pub fn remove_entry<Q: ?Sized + Eq> (&mut self, key: &Q) -> Option<(K, V)> where K: Borrow<Q> {
+            for i in 0..self.len() {
+                if unsafe { <K as Borrow<Q>>::borrow(&self.inner.get_unchecked(i).0) } == key {
+                    return Some(self.inner.swap_remove(i))
+                }
+            }
+            return None
+        }
+        
+        #[inline]
+        pub fn contains_key<Q: ?Sized + Eq> (&self, k: &Q) -> bool where K: Borrow<Q> {
+            self.keys().any(|x| x.borrow() == k)
+        }
     }
 }
 
@@ -137,25 +157,6 @@ impl_all! {
             }
         }
 
-        #[inline]
-        pub fn remove<Q: ?Sized + Eq> (&mut self, key: &Q) -> Option<V> where K: Borrow<Q> {
-            return self.remove_entry(key).map(|x| x.1)
-        }
-
-        #[inline]
-        pub fn remove_entry<Q: ?Sized + Eq> (&mut self, key: &Q) -> Option<(K, V)> where K: Borrow<Q> {
-            for i in 0..self.len() {
-                if unsafe { <K as Borrow<Q>>::borrow(&self.inner.get_unchecked(i).0) } == key {
-                    return Some(self.inner.swap_remove(i))
-                }
-            }
-            return None
-        }
-
-        #[inline]
-        pub fn contains_key<Q: ?Sized + Eq> (&self, k: &Q) -> bool where K: Borrow<Q> {
-            self.keys().any(|x| x.borrow() == k)
-        }
     }
 }
 
@@ -230,216 +231,233 @@ impl<K, V, A: Allocator> VecMap<K, V, A> {
     }
 }
 
-#[cfg(not(feature = "alloc"))]
-impl<K, V> VecMap<K, V> {
-    #[inline]
-    pub fn into_vec (self) -> Vec<(K, V)> {
-        return self.inner
-    }
-
-    #[inline]
-    pub fn into_box (self) -> Box<[(K, V)]> {
-        return self.inner.into_boxed_slice()
-    }
-
-    #[inline]
-    pub fn entry<'a>(&'a mut self, key: K) -> Entry<'a, K, V> where K: Eq {
-        for i in 0..self.inner.len() {
-            if unsafe { &self.inner.get_unchecked(i).0 } == &key {
-                return Entry::Occupied(OccupiedEntry {
-                    parent: &mut self.inner,
-                    idx: i,
-                });
+cfg_if::cfg_if! {
+    if #[cfg(feature = "alloc")] {
+        impl<K, V, A: Allocator> IntoIterator for VecMap<K, V, A> {
+            type Item = (K, V);
+            type IntoIter = IntoIter<K, V, A>;
+        
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                self.inner.into_iter()
             }
         }
-        return Entry::Vacant(VacantEntry {
-            parent: &mut self.inner,
-            key,
-        });
-    }
+        
+        impl<'a, K, V, A: Allocator> IntoIterator for &'a VecMap<K, V, A> {
+            type Item = (&'a K, &'a V);
+            type IntoIter = Iter<'a, K, V>;
+        
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                VecMap::iter(self)
+            }
+        }
+        
+        impl<'a, K, V, A: Allocator> IntoIterator for &'a mut VecMap<K, V, A> {
+            type Item = (&'a K, &'a mut V);
+            type IntoIter = IterMut<'a, K, V>;
+        
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                VecMap::iter_mut(self)
+            }
+        }
+        
+        impl<K: Eq, V, A: Allocator> Extend<(K, V)> for VecMap<K, V, A> {
+            #[inline]
+            fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
+                for (key, value) in iter {
+                    let _ = self.insert(key, value);
+                }
+            }
+        }
+        
+        impl<K: Eq, V, A: Allocator + Default> FromIterator<(K, V)> for VecMap<K, V, A> {
+            #[inline]
+            fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
+                let iter = iter.into_iter();
+                let mut result = Self::with_capacity_in(match iter.size_hint() {
+                    (_, Some(x)) => x,
+                    (x, _) => x
+                }, A::default());
+        
+                result.extend(iter);
+                return result
+            }
+        }
+        
+        impl<K, V, A: Allocator + Default> Default for VecMap<K, V, A> {
+            #[inline]
+            fn default() -> Self {
+                Self { inner: Vec::new_in(A::default()) }
+            }
+        }
+        
+        impl<K, V, A: Allocator> From<BoxMap<K, V, A>> for VecMap<K, V, A> {
+            #[inline]
+            fn from(value: BoxMap<K, V, A>) -> Self {
+                Self { inner: value.into_vec() }
+            }
+        }
+        
+        
+        impl<K: Debug, V: Debug, A: Allocator> Debug for VecMap<K, V, A> {
+            #[inline]
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_map().entries(self.iter()).finish()
+            }
+        }
+        
+        impl<Q: ?Sized + Eq, K: Borrow<Q>, V, A: Allocator> Index<&Q> for VecMap<K, V, A> {
+            type Output = V;
+        
+            #[inline]
+            fn index(&self, index: &Q) -> &Self::Output {
+                self.get(index).expect("index not found")
+            }
+        }
+        
+        impl<Q: ?Sized + Eq, K: Borrow<Q>, V, A: Allocator> IndexMut<&Q> for VecMap<K, V, A> {
+            #[inline]
+            fn index_mut (&mut self, index: &Q) -> &mut Self::Output {
+                self.get_mut(index).expect("index not found")
+            }
+        }
+    } else {
+        impl<K, V> VecMap<K, V> {
+            #[inline]
+            pub fn into_vec (self) -> Vec<(K, V)> {
+                return self.inner
+            }
+        
+            #[inline]
+            pub fn into_box (self) -> Box<[(K, V)]> {
+                return self.inner.into_boxed_slice()
+            }
+        
+            #[inline]
+            pub fn entry<'a>(&'a mut self, key: K) -> Entry<'a, K, V> where K: Eq {
+                for i in 0..self.inner.len() {
+                    if unsafe { &self.inner.get_unchecked(i).0 } == &key {
+                        return Entry::Occupied(OccupiedEntry {
+                            parent: &mut self.inner,
+                            idx: i,
+                        });
+                    }
+                }
+                return Entry::Vacant(VacantEntry {
+                    parent: &mut self.inner,
+                    key,
+                });
+            }
+        
+            #[inline]
+            pub fn into_keys (self) -> IntoKeys<K, V> {
+                return IntoKeys(self.inner.into_iter())
+            }
+        
+            #[inline]
+            pub fn into_values (self) -> IntoValues<K, V> {
+                return IntoValues(self.inner.into_iter())
+            }
+        
+            #[inline]
+            pub fn drain (&mut self) -> Drain<'_, K, V> {
+                return self.inner.drain(..)
+            }
+        }
+        
+        impl<K, V> IntoIterator for VecMap<K, V> {
+            type Item = (K, V);
+            type IntoIter = IntoIter<K, V>;
+        
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                self.inner.into_iter()
+            }
+        }
+        
+        impl<'a, K, V> IntoIterator for &'a VecMap<K, V> {
+            type Item = (&'a K, &'a V);
+            type IntoIter = Iter<'a, K, V>;
+        
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                VecMap::iter(self)
+            }
+        }
+        
+        impl<'a, K, V> IntoIterator for &'a mut VecMap<K, V> {
+            type Item = (&'a K, &'a mut V);
+            type IntoIter = IterMut<'a, K, V>;
+        
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                VecMap::iter_mut(self)
+            }
+        }
+        
+        impl<K: Eq, V> Extend<(K, V)> for VecMap<K, V> {
+            #[inline]
+            fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
+                for (key, value) in iter {
+                    let _ = self.insert(key, value);
+                }
+            }
+        }
+        
+        impl<K: Eq, V> FromIterator<(K, V)> for VecMap<K, V> {
+            #[inline]
+            fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
+                let iter = iter.into_iter();
+                let mut result = Self::with_capacity(match iter.size_hint() {
+                    (_, Some(x)) => x,
+                    (x, _) => x
+                });
+        
+                result.extend(iter);
+                return result
+            }
+        }
+        
+        impl<K, V> Default for VecMap<K, V> {
+            #[inline]
+            fn default() -> Self {
+                Self { inner: Default::default() }
+            }
+        }
 
-    #[inline]
-    pub fn into_keys (self) -> IntoKeys<K, V> {
-        return IntoKeys(self.inner.into_iter())
-    }
+        impl<K, V> From<BoxMap<K, V>> for VecMap<K, V> {
+            #[inline]
+            fn from(value: BoxMap<K, V>) -> Self {
+                Self { inner: value.into_vec() }
+            }
+        }
 
-    #[inline]
-    pub fn into_values (self) -> IntoValues<K, V> {
-        return IntoValues(self.inner.into_iter())
-    }
-
-    #[inline]
-    pub fn drain (&mut self) -> Drain<'_, K, V> {
-        return self.inner.drain(..)
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K, V> IntoIterator for VecMap<K, V> {
-    type Item = (K, V);
-    type IntoIter = IntoIter<K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        self.inner.into_iter()
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<'a, K, V> IntoIterator for &'a VecMap<K, V> {
-    type Item = (&'a K, &'a V);
-    type IntoIter = Iter<'a, K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        VecMap::iter(self)
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<'a, K, V> IntoIterator for &'a mut VecMap<K, V> {
-    type Item = (&'a K, &'a mut V);
-    type IntoIter = IterMut<'a, K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        VecMap::iter_mut(self)
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K: Eq, V> Extend<(K, V)> for VecMap<K, V> {
-    #[inline]
-    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
-        for (key, value) in iter {
-            let _ = self.insert(key, value);
+        impl<K: Debug, V: Debug> Debug for VecMap<K, V> {
+            #[inline]
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_map().entries(self.iter()).finish()
+            }
+        }
+        
+        impl<Q: ?Sized + Eq, K: Borrow<Q>, V> Index<&Q> for VecMap<K, V> {
+            type Output = V;
+        
+            #[inline]
+            fn index(&self, index: &Q) -> &Self::Output {
+                self.get(index).expect("index not found")
+            }
+        }
+        
+        impl<Q: ?Sized + Eq, K: Borrow<Q>, V> IndexMut<&Q> for VecMap<K, V> {
+            #[inline]
+            fn index_mut (&mut self, index: &Q) -> &mut Self::Output {
+                self.get_mut(index).expect("index not found")
+            }
         }
     }
 }
-
-#[cfg(not(feature = "alloc"))]
-impl<K: Eq, V> FromIterator<(K, V)> for VecMap<K, V> {
-    #[inline]
-    fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
-        let iter = iter.into_iter();
-        let mut result = Self::with_capacity(match iter.size_hint() {
-            (_, Some(x)) => x,
-            (x, _) => x
-        });
-
-        result.extend(iter);
-        return result
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K, V> Default for VecMap<K, V> {
-    #[inline]
-    fn default() -> Self {
-        Self { inner: Default::default() }
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K, V> From<BoxMap<K, V>> for VecMap<K, V> {
-    #[inline]
-    fn from(value: BoxMap<K, V>) -> Self {
-        Self { inner: value.into_vec() }
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K: Debug, V: Debug> Debug for VecMap<K, V> {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K, V, A: Allocator> IntoIterator for VecMap<K, V, A> {
-    type Item = (K, V);
-    type IntoIter = IntoIter<K, V, A>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        self.inner.into_iter()
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<'a, K, V, A: Allocator> IntoIterator for &'a VecMap<K, V, A> {
-    type Item = (&'a K, &'a V);
-    type IntoIter = Iter<'a, K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        VecMap::iter(self)
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<'a, K, V, A: Allocator> IntoIterator for &'a mut VecMap<K, V, A> {
-    type Item = (&'a K, &'a mut V);
-    type IntoIter = IterMut<'a, K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        VecMap::iter_mut(self)
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K: Eq, V, A: Allocator> Extend<(K, V)> for VecMap<K, V, A> {
-    #[inline]
-    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
-        for (key, value) in iter {
-            let _ = self.insert(key, value);
-        }
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K: Eq, V, A: Allocator + Default> FromIterator<(K, V)> for VecMap<K, V, A> {
-    #[inline]
-    fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
-        let iter = iter.into_iter();
-        let mut result = Self::with_capacity_in(match iter.size_hint() {
-            (_, Some(x)) => x,
-            (x, _) => x
-        }, A::default());
-
-        result.extend(iter);
-        return result
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K, V, A: Allocator + Default> Default for VecMap<K, V, A> {
-    #[inline]
-    fn default() -> Self {
-        Self { inner: Vec::new_in(A::default()) }
-    }
-}
-
-
-#[cfg(feature = "alloc")]
-impl<K, V, A: Allocator> From<BoxMap<K, V, A>> for VecMap<K, V, A> {
-    #[inline]
-    fn from(value: BoxMap<K, V, A>) -> Self {
-        Self { inner: value.into_vec() }
-    }
-}
-
-
-#[cfg(feature = "alloc")]
-impl<K: Debug, V: Debug, A: Allocator> Debug for VecMap<K, V, A> {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
-    }
-}
-
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]

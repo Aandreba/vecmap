@@ -12,14 +12,17 @@ macro_rules! impl_all {
     };
 }
 
-#[cfg(feature = "alloc")]
-use core::alloc::*;
+use crate::vec::VecMap;
 #[cfg(feature = "alloc")]
 use alloc::alloc::*;
-use core::{borrow::Borrow};
 use alloc::{boxed::*, vec::Vec};
+#[cfg(feature = "alloc")]
+use core::alloc::*;
 use core::fmt::Debug;
-use crate::vec::VecMap;
+use core::{
+    borrow::Borrow,
+    ops::{Index, IndexMut},
+};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "alloc")] {
@@ -53,7 +56,7 @@ impl_all! {{
 }}
 
 impl_all! {
-    where Eq => {
+    {
         #[inline]
         pub fn get<Q: ?Sized + Eq> (&self, key: &Q) -> Option<&V> where K: Borrow<Q> {
             for (k, v) in self.inner.iter() {
@@ -77,12 +80,7 @@ impl_all! {
             }
             return None
         }
-    }
-}
 
-
-impl_all! {
-    where Eq => {
         #[inline]
         pub fn contains_key<Q: ?Sized + Eq> (&self, k: &Q) -> bool where K: Borrow<Q> {
             self.keys().any(|x| x.borrow() == k)
@@ -100,7 +98,7 @@ impl_all! {{
     pub fn iter_mut (&mut self) -> IterMut<'_, K, V> {
         return IterMut(self.inner.iter_mut())
     }
-    
+
     #[inline]
     pub fn keys (&self) -> Keys<'_, K, V> {
         return Keys(self.inner.iter())
@@ -120,184 +118,203 @@ impl_all! {{
 #[cfg(feature = "alloc")]
 impl<K, V, A: Allocator> BoxMap<K, V, A> {
     #[inline]
-    pub fn into_vec (self) -> Vec<(K, V), A> {
-        return self.inner.into_vec()
+    pub fn into_vec(self) -> Vec<(K, V), A> {
+        return self.inner.into_vec();
     }
 
     #[inline]
-    pub fn into_box (self) -> Box<[(K, V)], A> {
-        return self.inner
+    pub fn into_box(self) -> Box<[(K, V)], A> {
+        return self.inner;
     }
 
     #[inline]
-    pub fn into_keys (self) -> IntoKeys<K, V, A> {
-        return IntoKeys(self.into_vec().into_iter())
+    pub fn into_keys(self) -> IntoKeys<K, V, A> {
+        return IntoKeys(self.into_vec().into_iter());
     }
 
     #[inline]
-    pub fn into_values (self) -> IntoValues<K, V, A> {
-        return IntoValues(self.into_vec().into_iter())
+    pub fn into_values(self) -> IntoValues<K, V, A> {
+        return IntoValues(self.into_vec().into_iter());
     }
 }
 
-#[cfg(not(feature = "alloc"))]
-impl<K, V> BoxMap<K, V> {
-    #[inline]
-    pub fn into_vec (self) -> Vec<(K, V)> {
-        return self.inner.into_vec()
-    }
+cfg_if::cfg_if! {
+    if #[cfg(feature = "alloc")] {
+        impl<K, V, A: Allocator> IntoIterator for BoxMap<K, V, A> {
+            type Item = (K, V);
+            type IntoIter = IntoIter<K, V, A>;
 
-    #[inline]
-    pub fn into_box (self) -> Box<[(K, V)]> {
-        return self.inner
-    }
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                self.into_vec().into_iter()
+            }
+        }
 
-    #[inline]
-    pub fn into_keys (self) -> IntoKeys<K, V> {
-        return IntoKeys(self.into_vec().into_iter())
-    }
+        impl<'a, K, V, A: Allocator> IntoIterator for &'a BoxMap<K, V, A> {
+            type Item = (&'a K, &'a V);
+            type IntoIter = Iter<'a, K, V>;
 
-    #[inline]
-    pub fn into_values (self) -> IntoValues<K, V> {
-        return IntoValues(self.into_vec().into_iter())
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                BoxMap::iter(self)
+            }
+        }
+
+        impl<'a, K, V, A: Allocator> IntoIterator for &'a mut BoxMap<K, V, A> {
+            type Item = (&'a K, &'a mut V);
+            type IntoIter = IterMut<'a, K, V>;
+
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                BoxMap::iter_mut(self)
+            }
+        }
+
+        impl<K: Eq, V, A: Allocator + Default> FromIterator<(K, V)> for BoxMap<K, V, A> {
+            #[inline]
+            fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
+                VecMap::from_iter(iter).into()
+            }
+        }
+
+        impl<K, V, A: Allocator + Default> Default for BoxMap<K, V, A> {
+            #[inline]
+            fn default () -> Self {
+                return Self { inner: Box::new_in([], A::default()) }
+            }
+        }
+
+        impl<K: Debug, V: Debug, A: Allocator> Debug for BoxMap<K, V, A> {
+            #[inline]
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_map().entries(self.iter()).finish()
+            }
+        }
+
+        impl<K, V, A: Allocator> From<VecMap<K, V, A>> for BoxMap<K, V, A> {
+            #[inline]
+            fn from(value: VecMap<K, V, A>) -> Self {
+                Self { inner: value.into_box() }
+            }
+        }
+
+        impl<Q: ?Sized + Eq, K: Borrow<Q>, V, A: Allocator> Index<&Q> for BoxMap<K, V, A> {
+            type Output = V;
+
+            #[inline]
+            fn index(&self, index: &Q) -> &Self::Output {
+                self.get(index).expect("index not found")
+            }
+        }
+
+        impl<Q: ?Sized + Eq, K: Borrow<Q>, V, A: Allocator> IndexMut<&Q> for BoxMap<K, V, A> {
+            #[inline]
+            fn index_mut (&mut self, index: &Q) -> &mut Self::Output {
+                self.get_mut(index).expect("index not found")
+            }
+        }
+    } else {
+        impl<K, V> BoxMap<K, V> {
+            #[inline]
+            pub fn into_vec (self) -> Vec<(K, V)> {
+                return self.inner.into_vec()
+            }
+
+            #[inline]
+            pub fn into_box (self) -> Box<[(K, V)]> {
+                return self.inner
+            }
+
+            #[inline]
+            pub fn into_keys (self) -> IntoKeys<K, V> {
+                return IntoKeys(self.into_vec().into_iter())
+            }
+
+            #[inline]
+            pub fn into_values (self) -> IntoValues<K, V> {
+                return IntoValues(self.into_vec().into_iter())
+            }
+        }
+
+        impl<K, V> IntoIterator for BoxMap<K, V> {
+            type Item = (K, V);
+            type IntoIter = IntoIter<K, V>;
+
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                self.into_vec().into_iter()
+            }
+        }
+
+        impl<'a, K, V> IntoIterator for &'a BoxMap<K, V> {
+            type Item = (&'a K, &'a V);
+            type IntoIter = Iter<'a, K, V>;
+
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                BoxMap::iter(self)
+            }
+        }
+
+        impl<'a, K, V> IntoIterator for &'a mut BoxMap<K, V> {
+            type Item = (&'a K, &'a mut V);
+            type IntoIter = IterMut<'a, K, V>;
+
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                BoxMap::iter_mut(self)
+            }
+        }
+
+        impl<K: Eq, V> FromIterator<(K, V)> for BoxMap<K, V> {
+            #[inline]
+            fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
+                VecMap::from_iter(iter).into()
+            }
+        }
+
+        impl<K, V> Default for BoxMap<K, V> {
+            #[inline]
+            fn default () -> Self {
+                return Self { inner: Box::new([]) }
+            }
+        }
+
+        impl<K: Debug, V: Debug> Debug for BoxMap<K, V> {
+            #[inline]
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_map().entries(self.iter()).finish()
+            }
+        }
+
+        impl<K, V> From<VecMap<K, V>> for BoxMap<K, V> {
+            #[inline]
+            fn from(value: VecMap<K, V>) -> Self {
+                Self { inner: value.into_box() }
+            }
+        }
+
+        impl<Q: ?Sized + Eq, K: Borrow<Q>, V> Index<&Q> for BoxMap<K, V> {
+            type Output = V;
+
+            #[inline]
+            fn index(&self, index: &Q) -> &Self::Output {
+                self.get(index).expect("index not found")
+            }
+        }
+
+        impl<Q: ?Sized + Eq, K: Borrow<Q>, V> IndexMut<&Q> for BoxMap<K, V> {
+            #[inline]
+            fn index_mut (&mut self, index: &Q) -> &mut Self::Output {
+                self.get_mut(index).expect("index not found")
+            }
+        }
     }
 }
-
-#[cfg(not(feature = "alloc"))]
-impl<K, V> IntoIterator for BoxMap<K, V> {
-    type Item = (K, V);
-    type IntoIter = IntoIter<K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        self.into_vec().into_iter()
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<'a, K, V> IntoIterator for &'a BoxMap<K, V> {
-    type Item = (&'a K, &'a V);
-    type IntoIter = Iter<'a, K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        BoxMap::iter(self)
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<'a, K, V> IntoIterator for &'a mut BoxMap<K, V> {
-    type Item = (&'a K, &'a mut V);
-    type IntoIter = IterMut<'a, K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        BoxMap::iter_mut(self)
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K: Eq, V> FromIterator<(K, V)> for BoxMap<K, V> {
-    #[inline]
-    fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
-        VecMap::from_iter(iter).into()
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K, V> Default for BoxMap<K, V> {
-    #[inline]
-    fn default () -> Self {
-        return Self { inner: Box::new([]) }
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K: Debug, V: Debug> Debug for BoxMap<K, V> {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
-    }
-}
-
-#[cfg(not(feature = "alloc"))]
-impl<K, V> From<VecMap<K, V>> for BoxMap<K, V> {
-    #[inline]
-    fn from(value: VecMap<K, V>) -> Self {
-        Self { inner: value.into_box() }
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K, V, A: Allocator> IntoIterator for BoxMap<K, V, A> {
-    type Item = (K, V);
-    type IntoIter = IntoIter<K, V, A>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        self.into_vec().into_iter()
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<'a, K, V, A: Allocator> IntoIterator for &'a BoxMap<K, V, A> {
-    type Item = (&'a K, &'a V);
-    type IntoIter = Iter<'a, K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        BoxMap::iter(self)
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<'a, K, V, A: Allocator> IntoIterator for &'a mut BoxMap<K, V, A> {
-    type Item = (&'a K, &'a mut V);
-    type IntoIter = IterMut<'a, K, V>;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        BoxMap::iter_mut(self)
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K: Eq, V, A: Allocator + Default> FromIterator<(K, V)> for BoxMap<K, V, A> {
-    #[inline]
-    fn from_iter<T: IntoIterator<Item = (K, V)>> (iter: T) -> Self {
-        VecMap::from_iter(iter).into()
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K, V, A: Allocator + Default> Default for BoxMap<K, V, A> {
-    #[inline]
-    fn default () -> Self {
-        return Self { inner: Box::new_in([], A::default()) }
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<K: Debug, V: Debug, A: Allocator> Debug for BoxMap<K, V, A> {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
-    }
-}
-
-
-#[cfg(feature = "alloc")]
-impl<K, V, A: Allocator> From<VecMap<K, V, A>> for BoxMap<K, V, A> {
-    #[inline]
-    fn from(value: VecMap<K, V, A>) -> Self {
-        Self { inner: value.into_box() }
-    }
-}
-
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct Keys<'a, K: 'a, V: 'a> (core::slice::Iter<'a, (K, V)>);
+pub struct Keys<'a, K: 'a, V: 'a>(core::slice::Iter<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for Keys<'a, K, V> {
     type Item = &'a K;
@@ -305,24 +322,30 @@ impl<'a, K, V> Iterator for Keys<'a, K, V> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let (key, _) = self.0.next()?;
-        return Some(key)
+        return Some(key);
     }
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let (key, _) = self.0.nth(n)?;
-        return Some(key)
+        return Some(key);
     }
 
     #[inline]
-    fn count(self) -> usize where Self: Sized, {
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
         self.0.count()
     }
 
     #[inline]
-    fn last(self) -> Option<Self::Item> where Self: Sized, {
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
         let (key, _) = self.0.last()?;
-        return Some(key)
+        return Some(key);
     }
 
     #[inline]
@@ -335,13 +358,13 @@ impl<'a, K, V> DoubleEndedIterator for Keys<'a, K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         let (key, _) = self.0.next_back()?;
-        return Some(key)
+        return Some(key);
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let (key, _) = self.0.nth_back(n)?;
-        return Some(key)
+        return Some(key);
     }
 }
 
@@ -354,7 +377,7 @@ impl<'a, K, V> ExactSizeIterator for Keys<'a, K, V> {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct Values<'a, K: 'a, V: 'a> (core::slice::Iter<'a, (K, V)>);
+pub struct Values<'a, K: 'a, V: 'a>(core::slice::Iter<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for Values<'a, K, V> {
     type Item = &'a V;
@@ -362,24 +385,30 @@ impl<'a, K, V> Iterator for Values<'a, K, V> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let (_, values) = self.0.next()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let (_, values) = self.0.nth(n)?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
-    fn count(self) -> usize where Self: Sized, {
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
         self.0.count()
     }
 
     #[inline]
-    fn last(self) -> Option<Self::Item> where Self: Sized, {
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
         let (_, values) = self.0.last()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
@@ -392,13 +421,13 @@ impl<'a, K, V> DoubleEndedIterator for Values<'a, K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         let (_, values) = self.0.next_back()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let (_, values) = self.0.nth_back(n)?;
-        return Some(values)
+        return Some(values);
     }
 }
 
@@ -411,7 +440,7 @@ impl<'a, K, V> ExactSizeIterator for Values<'a, K, V> {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct ValuesMut<'a, K: 'a, V: 'a> (core::slice::IterMut<'a, (K, V)>);
+pub struct ValuesMut<'a, K: 'a, V: 'a>(core::slice::IterMut<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for ValuesMut<'a, K, V> {
     type Item = &'a mut V;
@@ -419,24 +448,30 @@ impl<'a, K, V> Iterator for ValuesMut<'a, K, V> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let (_, values) = self.0.next()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let (_, values) = self.0.nth(n)?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
-    fn count(self) -> usize where Self: Sized, {
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
         self.0.count()
     }
 
     #[inline]
-    fn last(self) -> Option<Self::Item> where Self: Sized, {
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
         let (_, values) = self.0.last()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
@@ -449,13 +484,13 @@ impl<'a, K, V> DoubleEndedIterator for ValuesMut<'a, K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         let (_, values) = self.0.next_back()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let (_, values) = self.0.nth_back(n)?;
-        return Some(values)
+        return Some(values);
     }
 }
 
@@ -468,11 +503,9 @@ impl<'a, K, V> ExactSizeIterator for ValuesMut<'a, K, V> {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct IntoKeys<K, V, #[cfg(feature = "alloc")] A: Allocator = Global> (
-    #[cfg(feature = "alloc")]
-    alloc::vec::IntoIter<(K, V), A>,
-    #[cfg(not(feature = "alloc"))]
-    alloc::vec::IntoIter<(K, V)>,
+pub struct IntoKeys<K, V, #[cfg(feature = "alloc")] A: Allocator = Global>(
+    #[cfg(feature = "alloc")] alloc::vec::IntoIter<(K, V), A>,
+    #[cfg(not(feature = "alloc"))] alloc::vec::IntoIter<(K, V)>,
 );
 
 impl<K, V> Iterator for IntoKeys<K, V> {
@@ -481,24 +514,30 @@ impl<K, V> Iterator for IntoKeys<K, V> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let (key, _) = self.0.next()?;
-        return Some(key)
+        return Some(key);
     }
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let (key, _) = self.0.nth(n)?;
-        return Some(key)
+        return Some(key);
     }
 
     #[inline]
-    fn count(self) -> usize where Self: Sized, {
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
         self.0.count()
     }
 
     #[inline]
-    fn last(self) -> Option<Self::Item> where Self: Sized, {
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
         let (key, _) = self.0.last()?;
-        return Some(key)
+        return Some(key);
     }
 
     #[inline]
@@ -511,13 +550,13 @@ impl<K, V> DoubleEndedIterator for IntoKeys<K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         let (key, _) = self.0.next_back()?;
-        return Some(key)
+        return Some(key);
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let (key, _) = self.0.nth_back(n)?;
-        return Some(key)
+        return Some(key);
     }
 }
 
@@ -530,11 +569,9 @@ impl<K, V> ExactSizeIterator for IntoKeys<K, V> {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct IntoValues<K, V, #[cfg(feature = "alloc")] A: Allocator = Global> (
-    #[cfg(feature = "alloc")]
-    alloc::vec::IntoIter<(K, V), A>,
-    #[cfg(not(feature = "alloc"))]
-    alloc::vec::IntoIter<(K, V)>,
+pub struct IntoValues<K, V, #[cfg(feature = "alloc")] A: Allocator = Global>(
+    #[cfg(feature = "alloc")] alloc::vec::IntoIter<(K, V), A>,
+    #[cfg(not(feature = "alloc"))] alloc::vec::IntoIter<(K, V)>,
 );
 
 impl<K, V> Iterator for IntoValues<K, V> {
@@ -543,24 +580,30 @@ impl<K, V> Iterator for IntoValues<K, V> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let (_, values) = self.0.next()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let (_, values) = self.0.nth(n)?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
-    fn count(self) -> usize where Self: Sized, {
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
         self.0.count()
     }
 
     #[inline]
-    fn last(self) -> Option<Self::Item> where Self: Sized, {
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
         let (_, values) = self.0.last()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
@@ -573,13 +616,13 @@ impl<K, V> DoubleEndedIterator for IntoValues<K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         let (_, values) = self.0.next_back()?;
-        return Some(values)
+        return Some(values);
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let (_, values) = self.0.nth_back(n)?;
-        return Some(values)
+        return Some(values);
     }
 }
 
@@ -592,7 +635,7 @@ impl<K, V> ExactSizeIterator for IntoValues<K, V> {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct Iter<'a, K: 'a, V: 'a> (core::slice::Iter<'a, (K, V)>);
+pub struct Iter<'a, K: 'a, V: 'a>(core::slice::Iter<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for Iter<'a, K, V> {
     type Item = (&'a K, &'a V);
@@ -600,24 +643,30 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let (key, value) = self.0.next()?;
-        return Some((key, value))
+        return Some((key, value));
     }
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let (key, value) = self.0.nth(n)?;
-        return Some((key, value))
+        return Some((key, value));
     }
 
     #[inline]
-    fn count(self) -> usize where Self: Sized, {
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
         self.0.count()
     }
 
     #[inline]
-    fn last(self) -> Option<Self::Item> where Self: Sized, {
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
         let (key, value) = self.0.last()?;
-        return Some((key, value))
+        return Some((key, value));
     }
 
     #[inline]
@@ -630,13 +679,13 @@ impl<'a, K, V> DoubleEndedIterator for Iter<'a, K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         let (key, value) = self.0.next_back()?;
-        return Some((key, value))
+        return Some((key, value));
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let (key, value) = self.0.nth_back(n)?;
-        return Some((key, value))
+        return Some((key, value));
     }
 }
 
@@ -649,7 +698,7 @@ impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct IterMut<'a, K: 'a, V: 'a> (core::slice::IterMut<'a, (K, V)>);
+pub struct IterMut<'a, K: 'a, V: 'a>(core::slice::IterMut<'a, (K, V)>);
 
 impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
@@ -657,24 +706,30 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let (key, value) = self.0.next()?;
-        return Some((key, value))
+        return Some((key, value));
     }
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let (key, value) = self.0.nth(n)?;
-        return Some((key, value))
+        return Some((key, value));
     }
 
     #[inline]
-    fn count(self) -> usize where Self: Sized, {
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
         self.0.count()
     }
 
     #[inline]
-    fn last(self) -> Option<Self::Item> where Self: Sized, {
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
         let (key, value) = self.0.last()?;
-        return Some((key, value))
+        return Some((key, value));
     }
 
     #[inline]
@@ -687,13 +742,13 @@ impl<'a, K, V> DoubleEndedIterator for IterMut<'a, K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         let (key, value) = self.0.next_back()?;
-        return Some((key, value))
+        return Some((key, value));
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let (key, value) = self.0.nth_back(n)?;
-        return Some((key, value))
+        return Some((key, value));
     }
 }
 

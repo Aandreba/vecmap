@@ -7,21 +7,15 @@ use rand::{
 };
 use std::{
     collections::{BTreeMap, HashMap},
-    fs::File,
     hint::black_box,
-    io::Write,
     time::{Duration, Instant},
 };
-use vector_mapp::{
-    binary::BinaryMap,
-    vec::{VecMap},
-};
+use vector_mapp::{binary::BinaryMap, vec::VecMap};
 
 pub struct Bencher {
     warmup: Duration,
     duration: Duration,
-    output: File,
-    result: VecMap<&'static str, Vec<Duration>>
+    result: VecMap<&'static str, Vec<Duration>>,
 }
 
 impl Bencher {
@@ -56,7 +50,7 @@ impl Bencher {
         let average = Duration::from_secs_f64(delta.as_secs_f64() / (runs as f64));
         println!("Benchmarked '{name}' [{param}]: {average:?}");
         println!();
-        return average;
+        self.result[name]
     }
 }
 
@@ -99,7 +93,14 @@ pub fn main() {
     let mut b = Bencher {
         warmup: Duration::from_secs(3),
         duration: Duration::from_secs(5),
-        result: [(), (), (), (), ()].into_iter().collect()
+        result: [
+            ("hashmap", Vec::new()),
+            ("btreemap", Vec::new()),
+            ("vecmap", Vec::new()),
+            ("binarymap", Vec::new()),
+        ]
+        .into_iter()
+        .collect(),
     };
 
     for i in (2..=200).step_by(10) {
