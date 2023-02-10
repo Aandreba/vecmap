@@ -133,6 +133,38 @@ impl_all! {
                 }
             };
         }
+
+        #[inline]
+        pub fn insert_front (&mut self, k: K, v: V) -> Result<(), (K, V)> {
+            return match self.inner.get_mut(0) {
+                Some(x) if &x.0 < &k => Err((k, v)),
+                _ => {
+                    self.inner.push((k, v));
+                    Ok(())
+                }
+            }
+        }
+
+        #[inline]
+        pub fn insert_back (&mut self, k: K, v: V) -> Result<(), (K, V)> {
+            return match self.inner.last_mut() {
+                Some(x) if &x.0 > &k => Err((k, v)),
+                _ => {
+                    self.inner.push((k, v));
+                    Ok(())
+                }
+            }
+        }
+
+        #[inline]
+        pub unsafe fn insert_front_unchecked (&mut self, k: K, v: V) {
+            self.inner.insert(0, (k, v));
+        }
+        
+        #[inline]
+        pub unsafe fn insert_back_unchecked (&mut self, k: K, v: V) {
+            self.inner.push((k, v));
+        }
     }
 }
 
