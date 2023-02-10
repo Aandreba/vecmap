@@ -4,10 +4,10 @@
 use num_format::{Locale, ToFormattedString};
 use rand::{
     distributions::{Alphanumeric, Standard},
-    thread_rng, Rng, random,
+    random, thread_rng, Rng,
 };
 use std::{
-    collections::{HashMap, BTreeMap},
+    collections::{BTreeMap, HashMap},
     fs::File,
     hint::black_box,
     io::{BufWriter, Seek, SeekFrom, Write},
@@ -26,7 +26,7 @@ impl Bencher {
     #[inline(never)]
     pub fn iter<T, F: FnMut() -> T>(&mut self, name: &str, param: usize, mut f: F) {
         // Warmup
-        println!("Warming up '{name}' [{param}] for {:?}", &self.warmup);
+        // println!("Warming up '{name}' [{param}] for {:?}", &self.warmup);
         let now = Instant::now();
         let mut runs = 0u128;
         loop {
@@ -39,11 +39,11 @@ impl Bencher {
 
         // Benchmark
         runs = ((runs as f64) * self.duration.as_secs_f64() / self.warmup.as_secs_f64()) as u128;
-        println!(
-            "Benchmarking '{name}' [{param}] for {:?}  (expect arround {} runs)",
-            &self.duration,
-            runs.to_formatted_string(&Locale::es)
-        );
+        // println!(
+        //     "Benchmarking '{name}' [{param}] for {:?}  (expect arround {} runs)",
+        //     &self.duration,
+        //     runs.to_formatted_string(&Locale::es)
+        // );
         let now = Instant::now();
         for _ in 0..runs {
             black_box(f());
@@ -53,7 +53,7 @@ impl Bencher {
         // Show results
         let average = Duration::from_secs_f64(delta.as_secs_f64() / (runs as f64));
         println!("Benchmarked '{name}' [{param}]: {average:?}");
-        println!();
+        // println!();
         self.result[name].push(average);
     }
 
@@ -80,6 +80,45 @@ fn insert_with_size(size: usize, b: &mut Bencher) {
         .collect::<Vec<(u32, u32)>>();
 
     b.iter("hashmap", size, || {
+        let mut hashmap = HashMap::new();
+        for (k, v) in entries.iter().copied() {
+            let _ = hashmap.insert(k, v);
+        }
+        return hashmap;
+    });
+
+    b.iter("btreemap", size, || {
+        let mut hashmap = BTreeMap::new();
+        for (k, v) in entries.iter().copied() {
+            let _ = hashmap.insert(k, v);
+        }
+        return hashmap;
+    });
+
+    b.iter("vecmap", size, || {
+        let mut hashmap = VecMap::new();
+        for (k, v) in entries.iter().copied() {
+            let _ = hashmap.insert(k, v);
+        }
+        return hashmap;
+    });
+
+    b.iter("binarymap", size, || {
+        let mut hashmap = BinaryMap::new();
+        for (k, v) in entries.iter().copied() {
+            let _ = hashmap.insert(k, v);
+        }
+        return hashmap;
+    });
+}
+
+fn insert_prealloc_with_size(size: usize, b: &mut Bencher) {
+    let entries = thread_rng()
+        .sample_iter(Standard)
+        .take(size)
+        .collect::<Vec<(u32, u32)>>();
+
+    b.iter("hashmap", size, || {
         let mut hashmap = HashMap::with_capacity(size);
         for (k, v) in entries.iter().copied() {
             let _ = hashmap.insert(k, v);
@@ -87,6 +126,7 @@ fn insert_with_size(size: usize, b: &mut Bencher) {
         return hashmap;
     });
 
+    // no-prealloc
     // b.iter("btreemap", size, || {
     //     let mut hashmap = BTreeMap::new();
     //     for (k, v) in entries.iter().copied() {
@@ -112,16 +152,18 @@ fn insert_with_size(size: usize, b: &mut Bencher) {
     });
 }
 
-fn search_with_size(size: usize, b: &mut Bencher) {
+fn search_with_size(size: usize, chance: f64, b: &mut Bencher) {
     let entries = thread_rng()
         .sample_iter(Standard)
         .take(size)
         .collect::<Vec<(u32, u32)>>();
 
-    let searches = (0..size).map(|_| match random::<bool>() {
-        true => random::<u32>(),
-        false => unsafe { entries.get_unchecked(thread_rng().gen_range(0..size)).0 }
-    }).collect::<Vec<_>>();
+    let searches = (0..size)
+        .map(|_| match thread_rng().gen_bool(chance) {
+            false => random::<u32>(),
+            true => unsafe { entries.get_unchecked(thread_rng().gen_range(0..size)).0 },
+        })
+        .collect::<Vec<_>>();
 
     let hashmap = entries.iter().copied().collect::<HashMap<_, _>>();
     b.iter("hashmap", size, || {
@@ -152,11 +194,15 @@ fn search_with_size(size: usize, b: &mut Bencher) {
     });
 }
 
-pub fn main() -> std::io::Result<()> {
+pub fn calculate<I: IntoIterator<Item = usize>, F: FnMut(usize, &mut Bencher)>(
+    name: &str,
+    idx: I,
+    mut f: F,
+) -> std::io::Result<()> {
     let file_name = thread_rng()
         .sample_iter::<u8, _>(Alphanumeric)
         .take(10)
-        .chain(b".csv".iter().copied())
+        .chain(format!("_{name}.csv").bytes())
         .collect::<Vec<u8>>();
 
     let mut b = Bencher {
@@ -164,7 +210,7 @@ pub fn main() -> std::io::Result<()> {
         duration: Duration::from_secs(5),
         result: [
             ("hashmap", Vec::new()),
-            //("btreemap", Vec::new()),
+            ("btreemap", Vec::new()),
             ("vecmap", Vec::new()),
             ("binarymap", Vec::new()),
         ]
@@ -177,12 +223,12 @@ pub fn main() -> std::io::Result<()> {
         String::from_utf8_lossy(&file_name).deref(),
     )?);
 
-    for i in (2..=200).step_by(10) {
+    for i in idx {
         // Add entry count to headers
         header.push(format!("{i}"));
 
         // Run benchmark
-        search_with_size(i, &mut b);
+        f(i, &mut b);
 
         // Go to the start of the file
         file.seek(SeekFrom::Start(0))?;
@@ -198,4 +244,24 @@ pub fn main() -> std::io::Result<()> {
 
     file.flush()?;
     return Ok(());
+}
+
+pub fn main() {
+    let iter = 1..=256;
+
+    std::thread::scope(|s| {
+        s.spawn(|| calculate("insert", iter.clone(), insert_with_size).unwrap());
+        s.spawn(|| calculate("insert_prealloc", iter.clone(), insert_prealloc_with_size).unwrap());
+        s.spawn(|| {
+            calculate("search_50", iter.clone(), |size, b| {
+                search_with_size(size, 0.5, b)
+            })
+            .unwrap()
+        });
+
+        calculate("search_100", iter.clone(), |size, b| {
+            search_with_size(size, 1., b)
+        })
+        .unwrap()
+    });
 }

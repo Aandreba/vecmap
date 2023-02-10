@@ -16,8 +16,6 @@ use crate::vec::VecMap;
 #[cfg(feature = "alloc")]
 use alloc::alloc::*;
 use alloc::{boxed::*, vec::Vec};
-#[cfg(feature = "alloc")]
-use core::alloc::*;
 use core::fmt::Debug;
 use core::{
     borrow::Borrow,
