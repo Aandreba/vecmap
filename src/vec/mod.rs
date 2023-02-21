@@ -190,13 +190,13 @@ impl_all! {{
 #[cfg(feature = "alloc")]
 impl<K, V, A: Allocator> VecMap<K, V, A> {
     #[inline]
-    pub fn from_vec (vec: Vec<(K, V), A>) -> Self {
+    pub unsafe fn from_vec_unchecked (vec: Vec<(K, V), A>) -> Self {
         return Self { inner: vec }
     }
 
     #[inline]
-    pub fn from_box (bx: Box<[(K, V)], A>) -> Self {
-        return Self::from_vec(bx.into_vec())
+    pub unsafe fn from_box_unchecked (bx: Box<[(K, V)], A>) -> Self {
+        return Self::from_vec_unchecked(bx.into_vec())
     }
 
     #[inline]
@@ -336,13 +336,13 @@ cfg_if::cfg_if! {
     } else {
         impl<K, V> VecMap<K, V> {
             #[inline]
-            pub fn from_vec (vec: Vec<(K, V)>) -> Self {
+            pub unsafe fn from_vec_unchecked (vec: Vec<(K, V)>) -> Self {
                 return Self { inner: vec }
             }
 
             #[inline]
-            pub fn from_box (bx: Box<[(K, V)]>) -> Self {
-                return Self::from_vec(bx.into_vec())
+            pub unsafe fn from_box_unchecked (bx: Box<[(K, V)]>) -> Self {
+                return Self::from_vec_unchecked(bx.into_vec())
             }
 
             #[inline]
