@@ -190,6 +190,16 @@ impl_all! {{
 #[cfg(feature = "alloc")]
 impl<K, V, A: Allocator> VecMap<K, V, A> {
     #[inline]
+    pub fn from_vec (vec: Vec<(K, V), A>) -> Self {
+        return Self { inner: vec }
+    }
+
+    #[inline]
+    pub fn from_box (bx: Box<[(K, V)], A>) -> Self {
+        return Self::from_vec(bx.into_vec())
+    }
+
+    #[inline]
     pub fn into_vec (self) -> Vec<(K, V), A> {
         return self.inner
     }
@@ -325,6 +335,16 @@ cfg_if::cfg_if! {
         }
     } else {
         impl<K, V> VecMap<K, V> {
+            #[inline]
+            pub fn from_vec (vec: Vec<(K, V)>) -> Self {
+                return Self { inner: vec }
+            }
+
+            #[inline]
+            pub fn from_box (bx: Box<[(K, V)]>) -> Self {
+                return Self::from_vec(bx.into_vec())
+            }
+
             #[inline]
             pub fn into_vec (self) -> Vec<(K, V)> {
                 return self.inner

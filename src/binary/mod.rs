@@ -296,6 +296,37 @@ impl_all! {{
 #[cfg(feature = "alloc")]
 impl<K, V, A: Allocator> BinaryMap<K, V, A> {
     #[inline]
+    pub fn from_vec (mut vec: Vec<(K, V), A>) -> Self where K: Ord {
+        vec.sort_unstable_by(|(x, _), (y, _)| x.cmp(y));
+        return unsafe { Self::from_vec_unchecked(vec) }
+    }
+
+    #[inline]
+    pub fn from_box (bx: Box<[(K, V)], A>) -> Self where K: Ord {
+        Self::from_vec(bx.into_vec())
+    }
+
+    #[inline]
+    pub unsafe fn from_vec_unchecked (vec: Vec<(K, V), A>) -> Self {
+        return Self { inner: vec }
+    }
+
+    #[inline]
+    pub unsafe fn from_box_unchecked (bx: Box<[(K, V)], A>) -> Self {
+        return Self::from_vec_unchecked(bx.into_vec())
+    }
+
+    #[inline]
+    pub fn into_vec (self) -> Vec<(K, V), A> {
+        self.inner
+    }
+
+    #[inline]
+    pub fn into_box (self) -> Box<[(K, V)], A> {
+        self.inner.into_boxed_slice()
+    }
+
+    #[inline]
     pub fn into_keys(self) -> IntoKeys<K, V, A> {
         return crate::vec::IntoKeys(self.inner.into_iter())
     }
@@ -308,6 +339,37 @@ impl<K, V, A: Allocator> BinaryMap<K, V, A> {
 
 #[cfg(not(feature = "alloc"))]
 impl<K, V> BinaryMap<K, V> {
+    #[inline]
+    pub fn from_vec (mut vec: Vec<(K, V)>) -> Self where K: Ord {
+        vec.sort_unstable_by(|(x, _), (y, _)| x.cmp(y));
+        return unsafe { Self::from_vec_unchecked(vec) }
+    }
+
+    #[inline]
+    pub fn from_box (bx: Box<[(K, V)]>) -> Self where K: Ord {
+        Self::from_vec(bx.into_vec())
+    }
+
+    #[inline]
+    pub unsafe fn from_vec_unchecked (vec: Vec<(K, V)>) -> Self {
+        return Self { inner: vec }
+    }
+
+    #[inline]
+    pub unsafe fn from_box_unchecked (bx: Box<[(K, V)]>) -> Self {
+        return Self::from_vec_unchecked(bx.into_vec())
+    }
+
+    #[inline]
+    pub fn into_vec (self) -> Vec<(K, V)> {
+        self.inner
+    }
+
+    #[inline]
+    pub fn into_box (self) -> Box<[(K, V)]> {
+        self.inner.into_boxed_slice()
+    }
+    
     #[inline]
     pub fn into_keys(self) -> IntoKeys<K, V> {
         return crate::vec::IntoKeys(self.inner.into_iter())
