@@ -1,10 +1,13 @@
 #[cfg(feature = "alloc")]
-use core::alloc::*;
-#[cfg(feature = "alloc")]
 use alloc::alloc::*;
-use alloc::{vec::Vec, boxed::Box};
+use alloc::{boxed::Box, vec::Vec};
+#[cfg(feature = "alloc")]
+use core::alloc::*;
+use core::{
+    borrow::Borrow,
+    ops::{Index, IndexMut},
+};
 use docfg::docfg;
-use core::{borrow::Borrow, ops::{Index, IndexMut}};
 
 macro_rules! impl_all {
     ($(where $($trait:path),+ =>)? { $($t:tt)* }) => {
@@ -52,13 +55,17 @@ pub struct BinaryMap<K, V, #[cfg(feature = "alloc")] A: Allocator = Global> {
 #[docfg(feature = "alloc")]
 impl<K, V, A: Allocator> BinaryMap<K, V, A> {
     #[inline]
-    pub const fn new_in (alloc: A) -> Self {
-        Self { inner: Vec::new_in(alloc) }
+    pub const fn new_in(alloc: A) -> Self {
+        Self {
+            inner: Vec::new_in(alloc),
+        }
     }
 
     #[inline]
-    pub fn with_capacity_in (capacity: usize, alloc: A) -> Self {
-        Self { inner: Vec::with_capacity_in(capacity, alloc) }
+    pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
+        Self {
+            inner: Vec::with_capacity_in(capacity, alloc),
+        }
     }
 }
 
@@ -91,7 +98,7 @@ impl_all! {{
     pub fn clear(&mut self) {
         self.inner.clear()
     }
-    
+
     #[inline]
     pub fn contains_key<Q>(&self, k: &Q) -> bool
     where
@@ -112,7 +119,6 @@ impl<K, V, A: Allocator> BinaryMap<K, V, A> {
     }
 }
 
-
 #[cfg(not(feature = "alloc"))]
 impl<K, V> BinaryMap<K, V> {
     #[inline]
@@ -123,6 +129,11 @@ impl<K, V> BinaryMap<K, V> {
 
 impl_all! {
     where Ord => {
+        #[inline]
+        pub fn pop(&mut self) -> Option<(K, V)> {
+            self.inner.pop()
+        }
+
         #[inline]
         pub fn insert(&mut self, k: K, v: V) -> Option<V> {
             return match self.entry(k) {
@@ -135,7 +146,7 @@ impl_all! {
         }
 
         #[inline]
-        pub fn insert_front (&mut self, k: K, v: V) -> Result<(), (K, V)> {
+        pub fn insert_front(&mut self, k: K, v: V) -> Result<(), (K, V)> {
             return match self.inner.get_mut(0) {
                 Some(x) if &x.0 < &k => Err((k, v)),
                 _ => {
@@ -146,7 +157,7 @@ impl_all! {
         }
 
         #[inline]
-        pub fn insert_back (&mut self, k: K, v: V) -> Result<(), (K, V)> {
+        pub fn insert_back(&mut self, k: K, v: V) -> Result<(), (K, V)> {
             return match self.inner.last_mut() {
                 Some(x) if &x.0 > &k => Err((k, v)),
                 _ => {
@@ -160,7 +171,7 @@ impl_all! {
         pub unsafe fn insert_front_unchecked (&mut self, k: K, v: V) {
             self.inner.insert(0, (k, v));
         }
-        
+
         #[inline]
         pub unsafe fn insert_back_unchecked (&mut self, k: K, v: V) {
             self.inner.push((k, v));
@@ -276,17 +287,17 @@ impl_all! {{
     pub fn iter(&self) -> Iter<'_, K, V> {
         return crate::vec::Iter(self.inner.iter())
     }
-    
+
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         return crate::vec::IterMut(self.inner.iter_mut())
     }
-    
+
     #[inline]
     pub fn keys(&self) -> Keys<'_, K, V> {
         return crate::vec::Keys(self.inner.iter())
     }
-    
+
     #[inline]
     pub fn values(&self) -> Values<'_, K, V> {
         return crate::vec::Values(self.inner.iter())
@@ -296,88 +307,100 @@ impl_all! {{
 #[cfg(feature = "alloc")]
 impl<K, V, A: Allocator> BinaryMap<K, V, A> {
     #[inline]
-    pub fn from_vec (mut vec: Vec<(K, V), A>) -> Self where K: Ord {
+    pub fn from_vec(mut vec: Vec<(K, V), A>) -> Self
+    where
+        K: Ord,
+    {
         vec.sort_unstable_by(|(x, _), (y, _)| x.cmp(y));
-        return unsafe { Self::from_vec_unchecked(vec) }
+        return unsafe { Self::from_vec_unchecked(vec) };
     }
 
     #[inline]
-    pub fn from_box (bx: Box<[(K, V)], A>) -> Self where K: Ord {
+    pub fn from_box(bx: Box<[(K, V)], A>) -> Self
+    where
+        K: Ord,
+    {
         Self::from_vec(bx.into_vec())
     }
 
     #[inline]
-    pub unsafe fn from_vec_unchecked (vec: Vec<(K, V), A>) -> Self {
-        return Self { inner: vec }
+    pub unsafe fn from_vec_unchecked(vec: Vec<(K, V), A>) -> Self {
+        return Self { inner: vec };
     }
 
     #[inline]
-    pub unsafe fn from_box_unchecked (bx: Box<[(K, V)], A>) -> Self {
-        return Self::from_vec_unchecked(bx.into_vec())
+    pub unsafe fn from_box_unchecked(bx: Box<[(K, V)], A>) -> Self {
+        return Self::from_vec_unchecked(bx.into_vec());
     }
 
     #[inline]
-    pub fn into_vec (self) -> Vec<(K, V), A> {
+    pub fn into_vec(self) -> Vec<(K, V), A> {
         self.inner
     }
 
     #[inline]
-    pub fn into_box (self) -> Box<[(K, V)], A> {
+    pub fn into_box(self) -> Box<[(K, V)], A> {
         self.inner.into_boxed_slice()
     }
 
     #[inline]
     pub fn into_keys(self) -> IntoKeys<K, V, A> {
-        return crate::vec::IntoKeys(self.inner.into_iter())
+        return crate::vec::IntoKeys(self.inner.into_iter());
     }
 
     #[inline]
     pub fn into_values(self) -> IntoValues<K, V, A> {
-        return crate::vec::IntoValues(self.inner.into_iter())
+        return crate::vec::IntoValues(self.inner.into_iter());
     }
 }
 
 #[cfg(not(feature = "alloc"))]
 impl<K, V> BinaryMap<K, V> {
     #[inline]
-    pub fn from_vec (mut vec: Vec<(K, V)>) -> Self where K: Ord {
+    pub fn from_vec(mut vec: Vec<(K, V)>) -> Self
+    where
+        K: Ord,
+    {
         vec.sort_unstable_by(|(x, _), (y, _)| x.cmp(y));
-        return unsafe { Self::from_vec_unchecked(vec) }
+        return unsafe { Self::from_vec_unchecked(vec) };
     }
 
     #[inline]
-    pub fn from_box (bx: Box<[(K, V)]>) -> Self where K: Ord {
+    pub fn from_box(bx: Box<[(K, V)]>) -> Self
+    where
+        K: Ord,
+    {
         Self::from_vec(bx.into_vec())
     }
 
     #[inline]
-    pub unsafe fn from_vec_unchecked (vec: Vec<(K, V)>) -> Self {
-        return Self { inner: vec }
+    pub unsafe fn from_vec_unchecked(vec: Vec<(K, V)>) -> Self {
+        return Self { inner: vec };
     }
 
     #[inline]
-    pub unsafe fn from_box_unchecked (bx: Box<[(K, V)]>) -> Self {
-        return Self::from_vec_unchecked(bx.into_vec())
+    pub unsafe fn from_box_unchecked(bx: Box<[(K, V)]>) -> Self {
+        return Self::from_vec_unchecked(bx.into_vec());
     }
 
     #[inline]
-    pub fn into_vec (self) -> Vec<(K, V)> {
+    pub fn into_vec(self) -> Vec<(K, V)> {
         self.inner
     }
 
     #[inline]
-    pub fn into_box (self) -> Box<[(K, V)]> {
+    pub fn into_box(self) -> Box<[(K, V)]> {
         self.inner.into_boxed_slice()
     }
-    
+
     #[inline]
     pub fn into_keys(self) -> IntoKeys<K, V> {
-        return crate::vec::IntoKeys(self.inner.into_iter())
+        return crate::vec::IntoKeys(self.inner.into_iter());
     }
 
     #[inline]
     pub fn into_values(self) -> IntoValues<K, V> {
-        return crate::vec::IntoValues(self.inner.into_iter())
+        return crate::vec::IntoValues(self.inner.into_iter());
     }
 }
 
@@ -386,47 +409,47 @@ cfg_if::cfg_if! {
         impl<K, V, A: Allocator> IntoIterator for BinaryMap<K, V, A> {
             type Item = (K, V);
             type IntoIter = IntoIter<K, V, A>;
-        
+
             #[inline]
             fn into_iter(self) -> Self::IntoIter {
                 self.inner.into_iter()
             }
         }
-        
+
         impl<'a, K, V, A: Allocator> IntoIterator for &'a BinaryMap<K, V, A> {
             type Item = (&'a K, &'a V);
             type IntoIter = Iter<'a, K, V>;
-        
+
             #[inline]
             fn into_iter(self) -> Self::IntoIter {
                 BinaryMap::iter(self)
             }
         }
-        
+
         impl<'a, K, V, A: Allocator> IntoIterator for &'a mut BinaryMap<K, V, A> {
             type Item = (&'a K, &'a mut V);
             type IntoIter = IterMut<'a, K, V>;
-        
+
             #[inline]
             fn into_iter(self) -> Self::IntoIter {
                 BinaryMap::iter_mut(self)
             }
         }
-        
+
         impl<K: Ord, V, A: Allocator> Extend<(K, V)> for BinaryMap<K, V, A> {
             #[inline]
             fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
                 for (k, v) in iter { let _ = self.insert(k, v); }
             }
         }
-        
+
         impl<'a, 'b, K: Ord + Clone, V: Clone, A: Allocator> Extend<(&'a K, &'b V)> for BinaryMap<K, V, A> {
             #[inline]
             fn extend<T: IntoIterator<Item = (&'a K, &'b V)>>(&mut self, iter: T) {
                 <Self as Extend<(K, V)>>::extend(self, iter.into_iter().map(|(x, y)| (x.clone(), y.clone())))
             }
         }
-        
+
         impl<K: Ord, V, A: Allocator + Default> FromIterator<(K, V)> for BinaryMap<K, V, A> {
             #[inline]
             fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
@@ -435,23 +458,23 @@ cfg_if::cfg_if! {
                 this
             }
         }
-        
+
         impl<Q: ?Sized + Ord, K: Borrow<Q>, V, A: Allocator> Index<&Q> for BinaryMap<K, V, A> {
             type Output = V;
-        
+
             #[inline]
             fn index(&self, index: &Q) -> &Self::Output {
                 self.get(index).expect("index not found")
             }
         }
-        
+
         impl<Q: ?Sized + Ord, K: Borrow<Q>, V, A: Allocator> IndexMut<&Q> for BinaryMap<K, V, A> {
             #[inline]
             fn index_mut(&mut self, index: &Q) -> &mut Self::Output {
                 self.get_mut(index).expect("index not found")
             }
         }
-        
+
         impl<K: Ord, V, A: Allocator> From<Vec<(K, V), A>> for BinaryMap<K, V, A> {
             #[inline]
             fn from(mut inner: Vec<(K, V), A>) -> Self {
@@ -459,14 +482,14 @@ cfg_if::cfg_if! {
                 Self { inner }
             }
         }
-        
+
         impl<K: Ord, V, A: Allocator> From<Box<[(K, V)], A>> for BinaryMap<K, V, A> {
             #[inline]
             fn from(inner: Box<[(K, V)], A>) -> Self {
                 inner.into_vec().into()
             }
         }
-        
+
         impl<K: Ord, V, A: Allocator + Default, const N: usize> From<[(K, V); N]> for BinaryMap<K, V, A> {
             #[inline]
             fn from(inner: [(K, V); N]) -> Self {
@@ -486,47 +509,47 @@ cfg_if::cfg_if! {
         impl<K, V> IntoIterator for BinaryMap<K, V> {
             type Item = (K, V);
             type IntoIter = IntoIter<K, V>;
-        
+
             #[inline]
             fn into_iter(self) -> Self::IntoIter {
                 self.inner.into_iter()
             }
         }
-        
+
         impl<'a, K, V> IntoIterator for &'a BinaryMap<K, V> {
             type Item = (&'a K, &'a V);
             type IntoIter = Iter<'a, K, V>;
-        
+
             #[inline]
             fn into_iter(self) -> Self::IntoIter {
                 BinaryMap::iter(self)
             }
         }
-        
+
         impl<'a, K, V> IntoIterator for &'a mut BinaryMap<K, V> {
             type Item = (&'a K, &'a mut V);
             type IntoIter = IterMut<'a, K, V>;
-        
+
             #[inline]
             fn into_iter(self) -> Self::IntoIter {
                 BinaryMap::iter_mut(self)
             }
         }
-        
+
         impl<K: Ord, V> Extend<(K, V)> for BinaryMap<K, V> {
             #[inline]
             fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
                 for (k, v) in iter { let _ = self.insert(k, v); }
             }
         }
-        
+
         impl<'a, 'b, K: Ord + Clone, V: Clone> Extend<(&'a K, &'b V)> for BinaryMap<K, V> {
             #[inline]
             fn extend<T: IntoIterator<Item = (&'a K, &'b V)>>(&mut self, iter: T) {
                 <Self as Extend<(K, V)>>::extend(self, iter.into_iter().map(|(x, y)| (x.clone(), y.clone())))
             }
         }
-        
+
         impl<K: Ord, V> FromIterator<(K, V)> for BinaryMap<K, V> {
             #[inline]
             fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
@@ -535,23 +558,23 @@ cfg_if::cfg_if! {
                 this
             }
         }
-        
+
         impl<Q: ?Sized + Ord, K: Borrow<Q>, V> Index<&Q> for BinaryMap<K, V> {
             type Output = V;
-        
+
             #[inline]
             fn index(&self, index: &Q) -> &Self::Output {
                 self.get(index).expect("index not found")
             }
         }
-        
+
         impl<Q: ?Sized + Ord, K: Borrow<Q>, V> IndexMut<&Q> for BinaryMap<K, V> {
             #[inline]
             fn index_mut(&mut self, index: &Q) -> &mut Self::Output {
                 self.get_mut(index).expect("index not found")
             }
         }
-        
+
         impl<K: Ord, V> From<Vec<(K, V)>> for BinaryMap<K, V> {
             #[inline]
             fn from(mut inner: Vec<(K, V)>) -> Self {
@@ -559,14 +582,14 @@ cfg_if::cfg_if! {
                 Self { inner }
             }
         }
-        
+
         impl<K: Ord, V> From<Box<[(K, V)]>> for BinaryMap<K, V> {
             #[inline]
             fn from(inner: Box<[(K, V)]>) -> Self {
                 inner.into_vec().into()
             }
         }
-        
+
         impl<K: Ord, V, const N: usize> From<[(K, V); N]> for BinaryMap<K, V> {
             #[inline]
             fn from(inner: [(K, V); N]) -> Self {
